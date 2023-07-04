@@ -14,7 +14,7 @@ from scipy import signal as ss
 from scipy.signal import filtfilt
 from scipy.signal import savgol_filter
 from matplotlib.backends.backend_pdf import PdfPages
-from configuration import dir_path, filename_analysis, filename_pdf, filter_window, framerate, photobleach, type_smoothing
+from configuration import dir_path, filename_analysis, filename_pdf, filter_window, framerate, photobleach, type_smoothing, window_length
 
 
 save_path_analysis= Path (dir_path.joinpath(filename_analysis))
@@ -27,7 +27,7 @@ def open_data (file_path):
     Opens the signal from a matlab file that records two channels
     """
     with h5py.File (file_path) as f:
-            signal = f['sig'][()]
+            signal = f['sig'][()][:-1, :]
     return signal #specific to open keys from a h5py
 
 def take_all_files (dir_path):
@@ -39,6 +39,7 @@ def take_all_files (dir_path):
     # Create an empty dictionary to store the results
     signal_dict = {}
     info_experiment_list = []
+    info_experiment = pd.DataFrame(columns=['mouse #', 'sensor', 'date', 'condition'])
     # Iterate over all files in the directory
     for file_path in Path(dir_path).glob("*.mat"):
         # Extract the mouse number from the file name
@@ -59,8 +60,8 @@ def take_all_files (dir_path):
         condition = file_path.name.split("_")[3]
         # Add the data to the list
         info_experiment_list.append([mouse_number, sensor, date, condition])
-        info_experiment = pd.DataFrame(info_experiment_list, columns=['mouse #', 'sensor', 'date', 'condition'])
-            
+        
+    info_experiment = pd.DataFrame(info_experiment_list, columns=['mouse #', 'sensor', 'date', 'condition'])
     return signal_dict,info_experiment
 
 all_signal, all_info = take_all_files (dir_path)
@@ -107,7 +108,7 @@ def smoothing (isosbestic, rawsignal, filter_window):
     return control_smooth, signal_smooth
 
 #----------------
-def savitzky_golay_filter(isosbestic, rawsignal, window_length = 20, polyorder = 4):
+def savitzky_golay_filter(isosbestic, rawsignal, window_length, polyorder = 4):
     # Apply Savitzky-Golay filter to the signal
     control_smooth = savgol_filter(isosbestic, window_length, polyorder)
     signal_smooth = savgol_filter(rawsignal, window_length, polyorder)
@@ -164,10 +165,11 @@ def plot_processed_signal (timestamp, control_channel, fitted_control_channel, s
     fig, axs = plt.subplots(4, 1, figsize=(10, 8), sharex = True)
 
     x = timestamp
-    axs[0].plot(x, control_channel, c = 'violet', label = 'control')
+    axs[0].plot(x, signal_channel, c = 'green', label = 'control')
     axs[0].set_ylabel('Intensity(mV)')
     
     axs[1].plot(x, signal_channel, c = 'green', label = 'signal')
+    axs[1].plot(x, control_channel, c = 'violet', label = 'control')
     axs[1].set_ylabel('Intensity(mV)')
     
     axs[2].plot(x, signal_smooth, c = 'green', label = 'signal smoothed')
@@ -198,10 +200,11 @@ def photometry_preprocessing(input_dict, photobleach, framerate, filter_window, 
         # Loop through the arrays for this key
         time_frames, time_seconds = timestamp (value[0], framerate, photobleach)
         isosbestic, raw_signal = remove_bleaching (value[0], photobleach)
-        if type_smoothing == "moving_average":
+        
+        if type_smoothing is "moving_average":
             iso_smooth, signal_smooth = smoothing (isosbestic, raw_signal, filter_window)
-        elif type_smoothing == "savitzky":
-            iso_smooth, signal_smooth = savitzky_golay_filter(isosbestic, raw_signal, window_length = 20, polyorder = 4)
+        elif type_smoothing is "savitzky":
+            iso_smooth, signal_smooth = savitzky_golay_filter(isosbestic, raw_signal, window_length, polyorder = 4)
         else:
             iso_smooth, signal_smooth = isosbestic, raw_signal
         fitted_iso = controlfit(iso_smooth, signal_smooth)
